@@ -1,6 +1,7 @@
 const inventoryRouter = require('express').Router()
 const Inventory = require('../models/inventory')
 const jwt = require('jsonwebtoken')
+const { default: mongoose } = require('mongoose')
 
 inventoryRouter.get('/', async (request, response) => {
   const decodeToken = jwt.verify(request.token, process.env.SECRET)
@@ -9,7 +10,7 @@ inventoryRouter.get('/', async (request, response) => {
     response.status(401).json({ error: 'token missing or invalid' })
   }
 
-  const inventory = await Inventory.findOne({ user: decodeToken.id }).populate('products.product')
+  const inventory = await Inventory.findOne({ user: decodeToken.id })
   response.status(200).json(inventory)
 })
 /*
@@ -37,7 +38,10 @@ inventoryRouter.post('/:id/products', async (request, response) => {
   }
 
   const inventoryId = request.params.id
-  const product = request.body
+  const product = {
+    ...request.body,
+    productID: new mongoose.Types.ObjectId()
+  }
   const inventory = await Inventory.findById(inventoryId)
 
   if (!inventory) {
@@ -72,8 +76,8 @@ inventoryRouter.put('/:id/products', async (request, response) => {
 
   const inventoryId = request.params.id
   const products = request.body
-
-  products.map(async product => {
+  
+  const promisesArray = products.map(async product => {
       await Inventory.updateOne(
       { _id: inventoryId },
       {
@@ -81,17 +85,25 @@ inventoryRouter.put('/:id/products', async (request, response) => {
       },
       {
         arrayFilters: [{
-          "item.name": product.name
+          "item.productID": product.productID
         }],
       }
     )
   })
-  
-  const inventoryUpdate = await Inventory.find({_id: inventoryId})
+  await Promise.all(promisesArray)
+
+  const inventoryUpdate = await Inventory.findOneAndUpdate(
+    {_id: inventoryId},
+    {
+      $set: {setExpense: true}
+    },{
+      new : true
+    }
+    )
   return response.status(200).json(inventoryUpdate)
 })
 
-inventoryRouter.put('/:id/individual-product', async (request, response) => {
+inventoryRouter.put('/:id/info-product', async (request, response) => {
   const decodeToken = jwt.verify(request.token, process.env.SECRET)
   if (!request.token || !decodeToken) {
     response.status(401).json({ error: 'token missing or invalid' })
@@ -107,7 +119,7 @@ inventoryRouter.put('/:id/individual-product', async (request, response) => {
     },
     {
       arrayFilters: [{
-        "item.name": product.name
+        "item.productID": product.productID
       }],
       new: true
     }

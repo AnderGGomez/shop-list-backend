@@ -3,6 +3,10 @@ const Product = require('./product')
 
 const inventorySchema = new mongoose.Schema({
   products : [Product],
+  setExpense: {
+    type: Boolean,
+    default: false
+  },
   user: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
