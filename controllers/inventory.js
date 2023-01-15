@@ -1,40 +1,22 @@
 const inventoryRouter = require('express').Router()
 const Inventory = require('../models/inventory')
+const Order = require('../models/order')
 const jwt = require('jsonwebtoken')
 const { default: mongoose } = require('mongoose')
 
 inventoryRouter.get('/', async (request, response) => {
   const decodeToken = jwt.verify(request.token, process.env.SECRET)
-  console.log(request)
   if (!request.token || !decodeToken) {
-    response.status(401).json({ error: 'token missing or invalid' })
+    return response.status(401).json({ error: 'token missing or invalid' })
   }
-
   const inventory = await Inventory.findOne({ user: decodeToken.id })
-  response.status(200).json(inventory)
+  return response.status(200).json(inventory)
 })
-/*
-inventoryRouter.get('/:id', async (request, response) => {
-  const inventoryId = request.params.id;
-
-  const productReturned = await Inventory.findOne(
-    {
-      _id: inventoryId,
-    },
-    {
-      products: {
-        $elemMatch: {name: 'Queso'}
-      }
-    }
-  )
-  return response.status(200).json(productReturned)
-})
-*/
 
 inventoryRouter.post('/:id/products', async (request, response) => {
   const decodeToken = jwt.verify(request.token, process.env.SECRET)
   if (!request.token || !decodeToken) {
-    response.status(401).json({ error: 'token missing or invalid' })
+    return response.status(401).json({ error: 'token missing or invalid' })
   }
 
   const inventoryId = request.params.id
@@ -45,7 +27,7 @@ inventoryRouter.post('/:id/products', async (request, response) => {
   const inventory = await Inventory.findById(inventoryId)
 
   if (!inventory) {
-    response.status(404).json({ error: 'recurso no encontrado' })
+    return response.status(404).json({ error: 'recurso no encontrado' })
   }
 
   const exists = inventory.products.find(item => item.name == product.name)
@@ -53,6 +35,7 @@ inventoryRouter.post('/:id/products', async (request, response) => {
     return response.status(200).json(inventory)
   }
 
+  
   const result = await Inventory.findOneAndUpdate(
     { _id: inventoryId },
     {
@@ -63,6 +46,7 @@ inventoryRouter.post('/:id/products', async (request, response) => {
       new: true
     }
   )
+  
   const productSaved = result.products.filter(p => p.name === product.name)
   return response.status(201).json(...productSaved)
 
@@ -71,12 +55,18 @@ inventoryRouter.post('/:id/products', async (request, response) => {
 inventoryRouter.put('/:id/products', async (request, response) => {
   const decodeToken = jwt.verify(request.token, process.env.SECRET)
   if (!request.token || !decodeToken) {
-    response.status(401).json({ error: 'token missing or invalid' })
+    return response.status(401).json({ error: 'token missing or invalid' })
   }
 
   const inventoryId = request.params.id
   const products = request.body
-  
+
+  const inventory = await Inventory.findOne({user: decodeToken.id})
+
+  if(inventory.setExpense){
+    return response.status(428).json({error: 'El recurso ya fue actualizado'})
+  }
+
   const promisesArray = products.map(async product => {
       await Inventory.updateOne(
       { _id: inventoryId },
@@ -91,22 +81,28 @@ inventoryRouter.put('/:id/products', async (request, response) => {
     )
   })
   await Promise.all(promisesArray)
-
+  
   const inventoryUpdate = await Inventory.findOneAndUpdate(
     {_id: inventoryId},
     {
       $set: {setExpense: true}
     },{
       new : true
-    }
-    )
+    })
+ 
+  const orderObj = {
+    products: inventoryUpdate.products,
+    inventory: inventoryUpdate.id,
+    user : inventoryUpdate.user
+  }
+  await Order.insertMany([orderObj])
   return response.status(200).json(inventoryUpdate)
 })
 
 inventoryRouter.put('/:id/info-product', async (request, response) => {
   const decodeToken = jwt.verify(request.token, process.env.SECRET)
   if (!request.token || !decodeToken) {
-    response.status(401).json({ error: 'token missing or invalid' })
+    return response.status(401).json({ error: 'token missing or invalid' })
   }
 
   const inventoryId = request.params.id
@@ -125,8 +121,53 @@ inventoryRouter.put('/:id/info-product', async (request, response) => {
     }
   )
 
-  const productUpdated = result.products.filter(p => p.name == product.name)
+  const productUpdated = result.products.filter(p => p.productID == product.productID)
   return response.status(200).json(...productUpdated)
 })
+
+inventoryRouter.put('/:id/shop-products', async(request, response) => {
+  const decodeToken = jwt.verify(request.token, process.env.SECRET)
+  if(!request.token || !decodeToken){
+    return response.status(401).json({error: 'Token missing or invalid'})
+  }
+
+  const inventoryId = request.params.id
+  const products = request.body
+
+  const inventory = await Inventory.findById(inventoryId)
+
+  if(!inventory.setExpense){
+    return response.status(428).json({error: 'el recursos no se puede actualizar, no hay ordenes activas.'})
+  }
+
+  const promisesArray = products.map(async product => {
+    await Inventory.updateOne(
+      {_id: inventoryId},
+      {
+        $inc: { 'products.$[item].quantity': product.quantity}
+      },
+      {
+        arrayFilters: [
+          { 'item.productID': product.productID}
+        ]
+      }
+    )
+  })
+
+  await Promise.all(promisesArray)
+
+  const inventoryUpdate = await Inventory.findOneAndUpdate(
+    {_id: inventoryId},
+    {
+      $set: {setExpense: false}
+    },
+    {
+      new: true
+    }
+  )
+
+  return response.status(200).json(inventoryUpdate)
+})
+
 module.exports = inventoryRouter
 

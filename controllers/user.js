@@ -6,7 +6,7 @@ const Inventory = require('../models/inventory')
 userRouter.get('/:id', async (request, response) => {
   const id = request.params.id
   const user = await User.findById(id)
-  response.json(user)
+  return response.json(user)
 })
 
 userRouter.post('/', async (request, response) => {
@@ -31,7 +31,7 @@ userRouter.post('/', async (request, response) => {
     user: userSaved.id
   })
   await inventoryObj.save()
-  response.status(201).json(userSaved)
+  return response.status(201).json(userSaved)
 })
 
 module.exports = userRouter
